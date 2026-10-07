@@ -14,7 +14,7 @@ enum FinalCutBridge {
     /// Opening an .fcpxml with Final Cut Pro imports it into the library it came from.
     static func importIntoFinalCut(_ url: URL) async throws {
         guard let app = applicationURL else {
-            throw NSError(domain: "FCPAutoSubs", code: 1, userInfo: [NSLocalizedDescriptionKey: "Final Cut Pro was not found."])
+            throw NSError(domain: "SubDub", code: 1, userInfo: [NSLocalizedDescriptionKey: "Final Cut Pro was not found."])
         }
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true

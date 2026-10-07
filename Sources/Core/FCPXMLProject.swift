@@ -249,7 +249,7 @@ final class FCPXMLProject {
                 let localStart = parentStart + (tStart - parentOffset)
 
                 styleCounter += 1
-                let styleID = "fcpas_ts\(styleCounter)"
+                let styleID = "subdub_ts\(styleCounter)"
                 let caption = XMLElement(name: "caption")
                 caption.setAttributesWith([
                     "lane": "\(lane)",

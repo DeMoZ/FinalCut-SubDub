@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>FCP AutoSubs</title>
+    <title>SubDub</title>
     <welcome file="welcome.html" mime-type="text/html"/>
     <conclusion file="conclusion.html" mime-type="text/html"/>
     <options customize="never" require-scripts="true" hostArchitectures="arm64,x86_64"/>
@@ -13,8 +13,8 @@
     <choices-outline>
         <line choice="default"/>
     </choices-outline>
-    <choice id="default" title="FCP AutoSubs">
-        <pkg-ref id="com.fcpautosubs.app.pkg"/>
+    <choice id="default" title="SubDub">
+        <pkg-ref id="com.subdub.app.pkg"/>
     </choice>
-    <pkg-ref id="com.fcpautosubs.app.pkg" version="__VERSION__" onConclusion="none">FCPAutoSubs-component.pkg</pkg-ref>
+    <pkg-ref id="com.subdub.app.pkg" version="__VERSION__" onConclusion="none">SubDub-component.pkg</pkg-ref>
 </installer-gui-script>

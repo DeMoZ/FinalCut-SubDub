@@ -1,4 +1,4 @@
-# FCP AutoSubs
+# SubDub for Final Cut Pro
 
 Automatic subtitles for **Final Cut Pro**: a panel inside FCP that transcribes the speech in a whole project and translates the captions into other languages. It all runs **offline, on your Mac**, using Apple's built-in speech recognition (SpeechAnalyzer) and Translation frameworks. There are no cloud services, API keys or subscriptions.
 
@@ -7,11 +7,13 @@ Automatic subtitles for **Final Cut Pro**: a panel inside FCP that transcribes t
 - Each language is added as its own caption role (iTT), on frame boundaries.
 - Also writes `.srt` files for YouTube and other platforms.
 
+**Roadmap:** voice-over dubbing. The translated lines will be spoken by on-device Apple voices and placed on the timeline as one audio role per language.
+
 ## Install
 
-1. Download `FCP-AutoSubs-x.y.pkg` from [Releases](../../releases) and open it.
+1. Download `SubDub-x.y.pkg` from [Releases](../../releases) and open it.
 2. Restart Final Cut Pro.
-3. Choose **Window ▸ Extensions ▸ Auto Subtitles**.
+3. Choose **Window ▸ Extensions ▸ SubDub**.
 
 > If macOS says the installer is from an unidentified developer, open
 > **System Settings ▸ Privacy & Security** and click **Open Anyway**.
@@ -24,7 +26,7 @@ Automatic subtitles for **Final Cut Pro**: a panel inside FCP that transcribes t
 2. Choose the spoken language and the subtitle languages.
 3. Click **Create Subtitles**.
 
-Final Cut Pro imports a copy of the project named "… — subtitles (ru, en, th)", with one caption role per language. Your original project is not touched. Files are also saved to `~/Movies/FCP AutoSubs/`.
+Final Cut Pro imports a copy of the project named "… — subtitles (ru, en, th)", with one caption role per language. Your original project is not touched. Files are also saved to `~/Movies/SubDub/`.
 
 The first time you use a language, macOS downloads its speech or translation model once. After that, everything works without an internet connection.
 
@@ -42,17 +44,17 @@ Requires Xcode 26 and Final Cut Pro installed. `ProExtension.framework` is linke
 
 ```bash
 ./build.sh install   # build and install on this Mac (~/Applications)
-./build.sh pkg       # build the installer: build/FCP-AutoSubs-<version>.pkg
+./build.sh pkg       # build the installer: build/SubDub-<version>.pkg
 Tests/run.sh ru-RU   # end-to-end test on a sample project, without Final Cut Pro
 ```
 
 Signed and notarized build (requires an Apple Developer ID):
 
 ```bash
-xcrun notarytool store-credentials fcpas --apple-id you@example.com --team-id TEAMID
+xcrun notarytool store-credentials subdub --apple-id you@example.com --team-id TEAMID
 DEV_ID_APP="Developer ID Application: Your Name (TEAMID)" \
 DEV_ID_INSTALLER="Developer ID Installer: Your Name (TEAMID)" \
-NOTARY_PROFILE=fcpas ./build.sh pkg
+NOTARY_PROFILE=subdub ./build.sh pkg
 ```
 
 ### Project layout

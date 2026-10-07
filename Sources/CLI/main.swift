@@ -1,12 +1,12 @@
 import Foundation
 
-// Command-line test harness: fcpautosubs <project.fcpxml> [source-locale] [targets,comma,separated]
+// Command-line test harness: subdub <project.fcpxml> [source-locale] [targets,comma,separated]
 @main
 struct CLI {
     static func main() async {
         let args = CommandLine.arguments
         guard args.count >= 2 else {
-            print("usage: fcpautosubs <project.fcpxml> [ru-RU] [en,th]")
+            print("usage: subdub <project.fcpxml> [ru-RU] [en,th]")
             exit(2)
         }
         let input = URL(fileURLWithPath: args[1])

@@ -17,10 +17,10 @@
 	<array>
 		<string>/</string>
 	</array>
-	<!-- Results: ~/Movies/FCP AutoSubs -->
+	<!-- Results: ~/Movies/SubDub -->
 	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
 	<array>
-		<string>/Movies/FCP AutoSubs/</string>
+		<string>/Movies/SubDub/</string>
 	</array>
 </dict>
 </plist>

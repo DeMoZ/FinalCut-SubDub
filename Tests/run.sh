@@ -7,4 +7,4 @@ cd "${0:A:h}/.."
 mkdir -p out
 # FCPXML needs absolute media URLs: point the fixture at this checkout.
 sed "s|__FIXTURES__|$PWD/Tests/Fixtures|g" Tests/Fixtures/test-project.fcpxml > out/test-project.fcpxml
-./build/fcpautosubs out/test-project.fcpxml "${1:-ru-RU}" "${2:-}"
+./build/subdub out/test-project.fcpxml "${1:-ru-RU}" "${2:-}"

@@ -38,7 +38,7 @@ final class SubtitlePipeline {
         if !project.missingMediaFiles.isEmpty {
             warnings.append("Missing media: \(project.missingMediaFiles.prefix(5).joined(separator: ", "))")
         }
-        let work = FileManager.default.temporaryDirectory.appendingPathComponent("FCPAutoSubs-\(UUID().uuidString)")
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("SubDub-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
         let audioURL = work.appendingPathComponent("mix.caf")
@@ -91,10 +91,10 @@ final class SubtitlePipeline {
                               cueCount: cues.count, warnings: warnings)
     }
 
-    /// Where results go: ~/Movies/FCP AutoSubs (the real home, also from inside the sandbox).
+    /// Where results go: ~/Movies/SubDub (the real home, also from inside the sandbox).
     static var defaultOutputRoot: URL {
         let home = getpwuid(getuid()).flatMap { String(validatingCString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
-        return URL(fileURLWithPath: home).appendingPathComponent("Movies/FCP AutoSubs", isDirectory: true)
+        return URL(fileURLWithPath: home).appendingPathComponent("Movies/SubDub", isDirectory: true)
     }
 
     private static func safeName(_ s: String) -> String {

@@ -1,9 +1,9 @@
 #!/bin/zsh
-# Builds FCP AutoSubs without an Xcode project.
-#   ./build.sh            → build/FCP AutoSubs.app (with the Final Cut Pro workflow extension inside)
+# Builds SubDub without an Xcode project.
+#   ./build.sh            → build/SubDub.app (with the Final Cut Pro workflow extension inside)
 #   ./build.sh install    → build + install into ~/Applications + register the extension (this Mac)
-#   ./build.sh pkg        → build/FCP-AutoSubs-<version>.pkg installer for other Macs
-#   ./build.sh cli        → build/fcpautosubs (command-line test tool)
+#   ./build.sh pkg        → build/SubDub-<version>.pkg installer for other Macs
+#   ./build.sh cli        → build/subdub (command-line test tool)
 #
 # Optional signing for distribution (otherwise everything is ad-hoc signed):
 #   DEV_ID_APP="Developer ID Application: Company (TEAMID)"
@@ -12,18 +12,18 @@
 set -euo pipefail
 cd "${0:A:h}"
 
-VERSION="1.0"
-BUILD_NUMBER="2"
-BUNDLE_ID="com.fcpautosubs.app"
+VERSION="1.1"
+BUILD_NUMBER="3"
+BUNDLE_ID="com.subdub.app"
 EXT_ID="$BUNDLE_ID.extension"
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 ARCHS=(arm64 x86_64)
 OUT="build"
-APP_NAME="FCP AutoSubs"
+APP_NAME="SubDub"
 APP="$OUT/$APP_NAME.app"
-APPEX="$APP/Contents/PlugIns/FCPAutoSubsExtension.appex"
+APPEX="$APP/Contents/PlugIns/SubDubExtension.appex"
 DEV_ID_APP="${DEV_ID_APP:-}"
 DEV_ID_INSTALLER="${DEV_ID_INSTALLER:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
@@ -69,8 +69,8 @@ sign() { # sign <path> [entitlements]
 
 build_cli() {
   echo "→ CLI"
-  swiftc_universal "$OUT/fcpautosubs" "${CORE[@]}" Sources/CLI/main.swift
-  sign "$OUT/fcpautosubs"
+  swiftc_universal "$OUT/subdub" "${CORE[@]}" Sources/CLI/main.swift
+  sign "$OUT/subdub"
 }
 
 build_app() {
@@ -82,7 +82,7 @@ build_app() {
   echo "→ Extension"
   local rpath_flags=()
   for p in "${FCP_RPATHS[@]}"; do rpath_flags+=(-Xlinker -rpath -Xlinker "$p"); done
-  swiftc_universal "$APPEX/Contents/MacOS/FCPAutoSubsExtension" -module-name FCPAutoSubsExtension \
+  swiftc_universal "$APPEX/Contents/MacOS/SubDubExtension" -module-name SubDubExtension \
     "${CORE[@]}" "${UI[@]}" Sources/Extension/*.swift \
     -F "$FCP_APP/Contents/Frameworks" -framework ProExtension \
     -Xlinker -e -Xlinker _ProExtensionMain \
@@ -90,7 +90,7 @@ build_app() {
   plist_with_version Resources/Extension-Info.plist "$APPEX/Contents/Info.plist"
 
   echo "→ App"
-  swiftc_universal "$APP/Contents/MacOS/$APP_NAME" -module-name FCPAutoSubs \
+  swiftc_universal "$APP/Contents/MacOS/$APP_NAME" -module-name SubDub \
     "${CORE[@]}" "${UI[@]}" Sources/App/*.swift
   plist_with_version Resources/App-Info.plist "$APP/Contents/Info.plist"
 
@@ -109,11 +109,11 @@ plist_with_version() {
 install_local() {
   local dest="$HOME/Applications/$APP_NAME.app"
   mkdir -p "$HOME/Applications"
-  pluginkit -r "$dest/Contents/PlugIns/FCPAutoSubsExtension.appex" 2>/dev/null || true
+  pluginkit -r "$dest/Contents/PlugIns/SubDubExtension.appex" 2>/dev/null || true
   rm -rf "$dest"
   ditto "$APP" "$dest"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$dest"
-  pluginkit -a "$dest/Contents/PlugIns/FCPAutoSubsExtension.appex"
+  pluginkit -a "$dest/Contents/PlugIns/SubDubExtension.appex"
   pluginkit -e use -i "$EXT_ID" 2>/dev/null || true
   echo "✓ Installed: $dest"
   pluginkit -m -v -p com.apple.FinalCut.WorkflowExtension
@@ -121,7 +121,7 @@ install_local() {
 
 build_pkg() {
   local pkgroot="$OUT/pkgroot" work="$OUT/pkgwork"
-  local pkg="$OUT/FCP-AutoSubs-$VERSION.pkg"
+  local pkg="$OUT/SubDub-$VERSION.pkg"
   rm -rf "$pkgroot" "$work" "$pkg"
   mkdir -p "$pkgroot/Applications" "$work"
   ditto --norsrc --noextattr --noqtn "$APP" "$pkgroot/Applications/$APP_NAME.app"
@@ -134,7 +134,7 @@ build_pkg() {
   xattr -cr "$pkgroot" 2>/dev/null || true
   COPYFILE_DISABLE=1 pkgbuild --root "$pkgroot" --component-plist "$work/components.plist" \
     --scripts Installer/scripts --identifier "$BUNDLE_ID.pkg" --version "$VERSION" \
-    --install-location / "$work/FCPAutoSubs-component.pkg" >/dev/null
+    --install-location / "$work/SubDub-component.pkg" >/dev/null
 
   sed "s/__VERSION__/$VERSION/g" Installer/distribution.xml > "$work/distribution.xml"
   local sign_args=()

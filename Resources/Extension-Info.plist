@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Auto Subtitles</string>
+	<string>SubDub</string>
 	<key>CFBundleExecutable</key>
-	<string>FCPAutoSubsExtension</string>
+	<string>SubDubExtension</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.fcpautosubs.app.extension</string>
+	<string>com.subdub.app.extension</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>FCPAutoSubsExtension</string>
+	<string>SubDubExtension</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>

@@ -1,8 +1,17 @@
 #!/bin/sh
-# Unregister a previous version so Final Cut Pro picks up the new one.
-APPEX="/Applications/FCP AutoSubs.app/Contents/PlugIns/FCPAutoSubsExtension.appex"
+# Unregister a previous version so Final Cut Pro picks up the new one,
+# and remove the app from before the rename (FCP AutoSubs → SubDub).
 CONSOLE_USER=$(stat -f%Su /dev/console)
-if [ -d "$APPEX" ] && [ "$CONSOLE_USER" != "root" ]; then
-  launchctl asuser "$(id -u "$CONSOLE_USER")" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -r "$APPEX" 2>/dev/null || true
+unregister() {
+  if [ -d "$1" ] && [ "$CONSOLE_USER" != "root" ]; then
+    launchctl asuser "$(id -u "$CONSOLE_USER")" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -r "$1" 2>/dev/null || true
+  fi
+}
+unregister "/Applications/SubDub.app/Contents/PlugIns/SubDubExtension.appex"
+OLD="/Applications/FCP AutoSubs.app"
+if [ -d "$OLD" ]; then
+  unregister "$OLD/Contents/PlugIns/FCPAutoSubsExtension.appex"
+  rm -rf "$OLD"
+  pkgutil --forget com.fcpautosubs.app.pkg >/dev/null 2>&1 || true
 fi
 exit 0

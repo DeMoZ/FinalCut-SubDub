@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>FCP AutoSubs</string>
+	<string>SubDub</string>
 	<key>CFBundleExecutable</key>
-	<string>FCP AutoSubs</string>
+	<string>SubDub</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.fcpautosubs.app</string>
+	<string>com.subdub.app</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>FCP AutoSubs</string>
+	<string>SubDub</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

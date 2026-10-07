@@ -2,7 +2,7 @@ import SwiftUI
 import Translation
 import UniformTypeIdentifiers
 
-/// The panel shown inside Final Cut Pro (Window ▸ Extensions ▸ Auto Subtitles) and in the companion app.
+/// The panel shown inside Final Cut Pro (Window ▸ Extensions ▸ SubDub) and in the companion app.
 struct PanelView: View {
     @StateObject private var job = SubtitleJob()
     @State private var dropTargeted = false
@@ -34,7 +34,7 @@ struct PanelView: View {
                 .font(.title2)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Auto Subtitles").font(.headline)
+                Text("SubDub").font(.headline)
                 Text("Offline transcription & translation on this Mac").font(.caption).foregroundStyle(.secondary)
             }
         }
