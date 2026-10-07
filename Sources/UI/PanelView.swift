@@ -14,7 +14,9 @@ struct PanelView: View {
                 dropZone
                 if job.project != nil {
                     sourcePicker
+                    outputPicker
                     languageGrid
+                    if job.makeDub && !job.effectiveTargets.isEmpty { voiceSection }
                     downloadNotice
                     actionArea
                 }
@@ -30,12 +32,12 @@ struct PanelView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "captions.bubble.fill")
+            Image(systemName: "waveform.and.person.filled")
                 .font(.title2)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text("SubDub").font(.headline)
-                Text("Offline transcription & translation on this Mac").font(.caption).foregroundStyle(.secondary)
+                Text("Offline subtitles, translation & voice-over").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -91,9 +93,11 @@ struct PanelView: View {
 
     private var languageGrid: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Subtitles").font(.subheadline.weight(.semibold))
-            Toggle("Original (\(job.sourceLanguage.displayName))", isOn: $job.includeOriginal)
-                .toggleStyle(.checkbox)
+            Text("Languages").font(.subheadline.weight(.semibold))
+            if job.makeCaptions {
+                Toggle("Original subtitles (\(job.sourceLanguage.displayName))", isOn: $job.includeOriginal)
+                    .toggleStyle(.checkbox)
+            }
             Text("Translate to:").font(.caption).foregroundStyle(.secondary)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 6)], alignment: .leading, spacing: 6) {
                 ForEach(job.targetLanguages.filter { $0.code != job.sourceLanguage.code }) { lang in
@@ -104,6 +108,58 @@ struct PanelView: View {
             }
             .disabled(job.isRunning)
         }
+    }
+
+    private var outputPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Create").font(.subheadline.weight(.semibold))
+            HStack(spacing: 8) {
+                OutputToggle(title: "Subtitles", systemImage: "captions.bubble", isOn: $job.makeCaptions)
+                OutputToggle(title: "Voice-over", systemImage: "waveform", isOn: $job.makeDub)
+            }
+        }
+        .disabled(job.isRunning)
+    }
+
+    private var voiceSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Voices").font(.subheadline.weight(.semibold))
+            ForEach(job.effectiveTargets) { lang in
+                let voices = job.voices(for: lang)
+                HStack(spacing: 6) {
+                    Text(lang.displayName).font(.callout).frame(width: 84, alignment: .leading).lineLimit(1)
+                    if voices.isEmpty {
+                        Text("No voice installed").font(.caption).foregroundStyle(.orange)
+                        Spacer()
+                    } else {
+                        Picker("", selection: Binding(get: { job.voiceID(for: lang) }, set: { job.setVoice($0, for: lang) })) {
+                            ForEach(voices) { Text($0.label).tag($0.id) }
+                        }
+                        .labelsHidden()
+                        Button { job.preview(lang) } label: { Image(systemName: "speaker.wave.2.fill") }
+                            .buttonStyle(.borderless)
+                            .help("Preview voice")
+                    }
+                }
+            }
+            HStack(spacing: 6) {
+                Text("Original audio").font(.callout).frame(width: 84, alignment: .leading)
+                Picker("", selection: $job.originalAudio) {
+                    ForEach(SubtitleJob.OriginalAudioMode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .help("Lower = original quieter (−15 dB) while the voice-over speaks")
+            }
+            HStack(spacing: 4) {
+                Text("Better voices: Enhanced and Premium in Spoken Content settings.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Button("Open") { SubtitleJob.openVoiceSettings() }.buttonStyle(.link).font(.caption2)
+                Button { job.reloadVoices() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless).font(.caption2).help("Reload voices")
+            }
+        }
+        .disabled(job.isRunning)
     }
 
     @ViewBuilder
@@ -184,12 +240,15 @@ struct PanelView: View {
     }
 
     private var startTitle: String {
-        let n = (job.includeOriginal ? 1 : 0) + job.effectiveTargets.count
-        return n == 0 ? "Choose a language" : "Create Subtitles (\(languagesSummary))"
+        guard job.canStart || job.isRunning else {
+            return job.makeCaptions || job.makeDub ? "Choose a language" : "Choose Subtitles or Voice-over"
+        }
+        let what = [job.makeCaptions ? "Subtitles" : nil, job.makeDub ? "Voice-over" : nil].compactMap { $0 }.joined(separator: " & ")
+        return "Create \(what) (\(languagesSummary))"
     }
 
     private var languagesSummary: String {
-        var codes = job.includeOriginal ? [job.sourceLanguage.code] : []
+        var codes = job.makeCaptions && job.includeOriginal ? [job.sourceLanguage.code] : []
         codes += job.effectiveTargets.map(\.code)
         return codes.joined(separator: ", ")
     }
@@ -240,9 +299,23 @@ private struct DoneView: View {
     let languages: String
     let regenerate: () -> Void
 
+    private var doneTitle: String {
+        var parts: [String] = []
+        if !result.srtURLs.isEmpty { parts.append("\(result.cueCount) captions × \(result.srtURLs.count) language(s)") }
+        if !result.dubURLs.isEmpty { parts.append("voice-over × \(result.dubURLs.count)") }
+        return "Done: " + parts.joined(separator: ", ")
+    }
+
+    private var importHint: String {
+        var s = "A copy of the project was imported into Final Cut Pro."
+        if !result.srtURLs.isEmpty { s += " Caption languages: Timeline Index ▸ Roles ▸ Captions." }
+        if !result.dubURLs.isEmpty { s += " Voice-over: Roles ▸ Dialogue ▸ Dub <language> — mute the ones you don't need." }
+        return s
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Done: \(result.cueCount) captions × \(result.srtURLs.count) language(s)", systemImage: "checkmark.seal.fill")
+            Label(doneTitle, systemImage: "checkmark.seal.fill")
                 .foregroundStyle(.green)
                 .font(.body.weight(.semibold))
 
@@ -250,8 +323,9 @@ private struct DoneView: View {
                 Text("Couldn't open in Final Cut Pro automatically: \(importError). Drag the file below into the FCP browser.")
                     .font(.caption).foregroundStyle(.orange)
             } else {
-                Text("A copy of the project with captions was imported into Final Cut Pro. Toggle languages in Timeline Index ▸ Roles ▸ Captions.")
+                Text(importHint)
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             ForEach(result.warnings, id: \.self) { w in
@@ -280,5 +354,23 @@ private struct DoneView: View {
             }
             .controlSize(.small)
         }
+    }
+}
+
+private struct OutputToggle: View {
+    let title: String
+    let systemImage: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button { isOn.toggle() } label: {
+            Label(title, systemImage: isOn ? "checkmark.circle.fill" : systemImage)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 7).fill(isOn ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08)))
+                .foregroundStyle(isOn ? Color.accentColor : Color.primary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

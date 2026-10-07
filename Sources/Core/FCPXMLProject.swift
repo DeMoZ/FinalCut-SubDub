@@ -248,8 +248,7 @@ final class FCPXMLProject {
                 let parentStart = parent.rational("start") ?? .zero
                 let localStart = parentStart + (tStart - parentOffset)
 
-                styleCounter += 1
-                let styleID = "subdub_ts\(styleCounter)"
+                let styleID = uniqueID("subdub_ts", counter: &styleCounter)
                 let caption = XMLElement(name: "caption")
                 caption.setAttributesWith([
                     "lane": "\(lane)",
@@ -284,11 +283,216 @@ final class FCPXMLProject {
         }
     }
 
+    // MARK: - Library
+
+    /// Projects dragged out of Final Cut Pro arrive without a library, so FCP asks where to import.
+    /// When the media lives inside a library bundle, point the import at that library and event.
+    func assignLibraryFromMedia() {
+        guard let root = document.rootElement() else { return }
+        if root.child("library")?.attr("location") != nil { return }
+
+        var libraryURL: String?
+        var eventName: String?
+        for res in resources.values where res.name == "asset" {
+            for rep in res.children("media-rep") {
+                guard let src = rep.attr("src"), let r = src.range(of: ".fcpbundle/") else { continue }
+                libraryURL = String(src[..<r.upperBound])
+                let rest = src[r.upperBound...].split(separator: "/").first.map(String.init)
+                eventName = rest?.removingPercentEncoding
+                break
+            }
+            if libraryURL != nil { break }
+        }
+        guard let libraryURL else { return }
+
+        if let library = root.child("library") {
+            library.addAttribute(XMLNode.attribute(withName: "location", stringValue: libraryURL) as! XMLNode)
+            return
+        }
+        let library = XMLElement(name: "library")
+        library.addAttribute(XMLNode.attribute(withName: "location", stringValue: libraryURL) as! XMLNode)
+        let events = root.children("event")
+        if !events.isEmpty {
+            for e in events { e.detach(); library.addChild(e) }
+        } else {
+            let event = XMLElement(name: "event")
+            event.addAttribute(XMLNode.attribute(withName: "name", stringValue: eventName ?? "SubDub") as! XMLNode)
+            for item in root.childElements where !["import-options", "resources"].contains(item.name ?? "") {
+                item.detach()
+                event.addChild(item)
+            }
+            library.addChild(event)
+        }
+        root.addChild(library)
+    }
+
+    // MARK: - Voice-over
+
+    enum OriginalAudio {
+        case keep
+        case duck(dB: Double)
+        case mute
+    }
+
+    /// Adds one connected audio clip per dub language (lanes below the storyline) and
+    /// optionally lowers the original audio while the dub speaks.
+    func addVoiceOver(_ tracks: [(name: String, url: URL, frames: Int64, sampleRate: Int64)],
+                      original: OriginalAudio, speech: [ClosedRange<Double>]) {
+        let items = spine.childElements.filter { $0.name != "transition" }
+        guard let anchor = items.first, let resourcesEl = document.rootElement()?.child("resources") else { return }
+
+        let minLane = anchor.childElements.compactMap { $0.attr("lane").flatMap(Int.init) }.min() ?? 0
+        let anchorOffset = anchor.rational("offset") ?? .zero
+        let anchorStart = anchor.rational("start") ?? .zero
+        let localZero = anchorStart + (sequenceStart - anchorOffset)
+        let sequenceDuration = RationalTime.frameAligned(duration, frameDuration: frameDuration)
+
+        for (i, track) in tracks.enumerated() {
+            var counter = i
+            let assetID = uniqueID("subdub_dub", counter: &counter)
+            let assetDuration = RationalTime(num: track.frames, den: track.sampleRate)
+            let asset = XMLElement(name: "asset")
+            asset.setAttributesWith([
+                "id": assetID, "name": "Dub \(track.name)", "start": "0s",
+                "duration": assetDuration.fcpxmlString, "hasAudio": "1",
+                "audioSources": "1", "audioChannels": "1", "audioRate": "\(track.sampleRate)",
+            ])
+            let rep = XMLElement(name: "media-rep")
+            rep.setAttributesWith(["kind": "original-media", "src": track.url.absoluteString])
+            asset.addChild(rep)
+            resourcesEl.addChild(asset)
+
+            let clip = XMLElement(name: "asset-clip")
+            clip.setAttributesWith([
+                "ref": assetID,
+                "lane": "\(min(minLane, 0) - 1 - i)",
+                "offset": localZero.fcpxmlString,
+                "name": "Dub \(track.name)",
+                "duration": min(sequenceDuration, assetDuration).fcpxmlString,
+                "audioRole": "dialogue.Dub \(track.name)",
+            ])
+            insertAnchored(clip, into: anchor)
+        }
+
+        guard !speech.isEmpty else { return }
+        switch original {
+        case .keep: break
+        case .mute: for item in items { setVolume(item, keyframes: nil, constantOffset: -96) }
+        case .duck(let dB):
+            let merged = Self.merge(speech, gap: 0.6)
+            for item in items { duck(item, ranges: merged, dB: dB) }
+        }
+    }
+
+    private static func merge(_ ranges: [ClosedRange<Double>], gap: Double) -> [ClosedRange<Double>] {
+        var out: [ClosedRange<Double>] = []
+        for r in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+            if let last = out.last, r.lowerBound - last.upperBound < gap {
+                out[out.count - 1] = last.lowerBound ... max(last.upperBound, r.upperBound)
+            } else {
+                out.append(r)
+            }
+        }
+        return out
+    }
+
+    private static let audible: Set<String> = ["asset-clip", "clip", "sync-clip", "mc-clip", "ref-clip", "audio"]
+
+    /// Volume keyframes in the item's local time: fade down before each line, back up after.
+    private func duck(_ item: XMLElement, ranges: [ClosedRange<Double>], dB: Double) {
+        guard Self.audible.contains(item.name ?? "") else { return }
+        let offset = item.rational("offset") ?? .zero
+        let start = item.rational("start") ?? .zero
+        guard let dur = item.rational("duration") else { return }
+        // Timeline seconds (0 = sequence start) of this item.
+        let tlStart = (offset - sequenceStart).seconds
+        let tlEnd = tlStart + dur.seconds
+        let fadeDown = 0.25, fadeUp = 0.4
+
+        var points: [(t: Double, ducked: Bool)] = []
+        for r in ranges where r.upperBound + fadeUp > tlStart && r.lowerBound - fadeDown < tlEnd {
+            points.append((r.lowerBound - fadeDown, false))
+            points.append((r.lowerBound, true))
+            points.append((r.upperBound, true))
+            points.append((r.upperBound + fadeUp, false))
+        }
+        guard !points.isEmpty else { return }
+        // Clamp to the item's own range; drop points that collapse onto the same time.
+        let end = start + dur
+        var keyframes: [(RationalTime, Bool)] = []
+        for p in points {
+            var local = start + (RationalTime.frameAligned(p.t, frameDuration: frameDuration) + sequenceStart - offset)
+            if local < start { local = start }
+            if end < local { local = end }
+            if let last = keyframes.last, last.0 == local { keyframes[keyframes.count - 1] = (local, p.ducked) } else { keyframes.append((local, p.ducked)) }
+        }
+        setVolume(item, keyframes: keyframes.map { ($0.0, $0.1 ? dB : 0) }, constantOffset: 0)
+    }
+
+    /// Sets `adjust-volume` on an item, keeping the user's existing level as the base.
+    private func setVolume(_ item: XMLElement, keyframes: [(RationalTime, Double)]?, constantOffset: Double) {
+        guard Self.audible.contains(item.name ?? "") else { return }
+        let existing = item.child("adjust-volume")
+        let base = existing?.attr("amount").flatMap { Double($0.replacingOccurrences(of: "dB", with: "")) } ?? 0
+        if existing?.child("param") != nil { return } // user already automated volume: leave it alone
+
+        let volume = existing ?? XMLElement(name: "adjust-volume")
+        func db(_ v: Double) -> String { String(format: "%.1fdB", max(-96, base + v)) }
+
+        if let keyframes {
+            volume.removeAttribute(forName: "amount")
+            let param = XMLElement(name: "param")
+            param.setAttributesWith(["name": "amount"])
+            let animation = XMLElement(name: "keyframeAnimation")
+            for (t, v) in keyframes {
+                let k = XMLElement(name: "keyframe")
+                k.setAttributesWith(["time": t.fcpxmlString, "value": db(v)])
+                animation.addChild(k)
+            }
+            param.addChild(animation)
+            volume.addChild(param)
+        } else {
+            volume.removeAttribute(forName: "amount")
+            volume.addAttribute(XMLNode.attribute(withName: "amount", stringValue: db(constantOffset)) as! XMLNode)
+        }
+        if existing == nil { insertVolume(volume, into: item) }
+    }
+
+    /// `adjust-volume` goes after timing and video adjustments, before `adjust-panner` and anchored items.
+    private func insertVolume(_ node: XMLElement, into item: XMLElement) {
+        let before: (XMLElement) -> Bool = { el in
+            let n = el.name ?? ""
+            if ["note", "conform-rate", "timeMap", "object-tracker"].contains(n) { return true }
+            return n.hasPrefix("adjust-") && n != "adjust-panner"
+        }
+        let children = item.children ?? []
+        let idx = children.firstIndex { ($0 as? XMLElement).map { !before($0) } ?? false } ?? children.count
+        item.insertChild(node, at: idx)
+    }
+
     /// Renames the project and drops its uid so FCP imports it as a new project next to the original.
     func markAsCopy(suffix: String) {
-        project.attribute(forName: "name")?.stringValue = "\(name) \(suffix)"
+        // Re-processing a SubDub copy: replace its suffix instead of stacking another one.
+        var base = name
+        while let r = base.range(of: #" — (subtitles|dub|subtitles \+ dub) \([^)]*\)$"#, options: .regularExpression) {
+            base.removeSubrange(r)
+        }
+        project.attribute(forName: "name")?.stringValue = "\(base) \(suffix)"
         project.removeAttribute(forName: "uid")
         project.removeAttribute(forName: "modDate")
+    }
+
+    private lazy var usedIDs: Set<String> = {
+        let nodes = (try? document.nodes(forXPath: "//@id")) ?? []
+        return Set(nodes.compactMap(\.stringValue))
+    }()
+
+    /// Next free ID with the prefix: projects that already went through SubDub keep their IDs.
+    private func uniqueID(_ prefix: String, counter: inout Int) -> String {
+        repeat { counter += 1 } while usedIDs.contains("\(prefix)\(counter)")
+        let id = "\(prefix)\(counter)"
+        usedIDs.insert(id)
+        return id
     }
 
     func xmlData() -> Data {
@@ -342,7 +546,7 @@ extension XMLElement {
     }
 
     private static func attrOrder(_ key: String) -> Int {
-        ["lane", "offset", "name", "start", "duration", "role", "font", "fontSize", "fontFace", "fontColor", "backgroundColor"]
+        ["id", "ref", "kind", "lane", "offset", "name", "start", "duration", "role", "audioRole", "hasAudio", "audioSources", "audioChannels", "audioRate", "src", "time", "value", "font", "fontSize", "fontFace", "fontColor", "backgroundColor"]
             .firstIndex(of: key) ?? 99
     }
 }

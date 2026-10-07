@@ -1,8 +1,9 @@
-import Foundation
+import AVFoundation
 
 struct PipelineResult {
     var fcpxmlURL: URL
     var srtURLs: [URL]
+    var dubURLs: [URL]
     var outputFolder: URL
     var cueCount: Int
     var warnings: [String]
@@ -15,6 +16,11 @@ final class SubtitlePipeline {
         var includeOriginal: Bool
         var targets: [SubtitleLanguage]
         var outputRoot: URL
+        /// Add caption roles (subtitles).
+        var captions: Bool = true
+        /// Voice-over languages: language code → voice identifier ("" = default voice).
+        var dubVoices: [String: String] = [:]
+        var originalAudio: FCPXMLProject.OriginalAudio = .duck(dB: -15)
     }
 
     typealias Report = (_ step: String, _ fraction: Double) -> Void
@@ -55,40 +61,72 @@ final class SubtitlePipeline {
 
         let sourceLanguage = SubtitleLanguage(options.sourceLocale.language)
         let cues = Segmenter.cues(from: words, language: sourceLanguage.code)
+        let dubbing = options.dubVoices.filter { $0.key != sourceLanguage.code }
 
         // 3. Translations
-        var tracks: [(language: SubtitleLanguage, cues: [CaptionCue])] = []
-        if options.includeOriginal { tracks.append((sourceLanguage, cues)) }
-        let targets = options.targets.filter { $0.code != sourceLanguage.code }
+        var tracks: [(language: SubtitleLanguage, cues: [CaptionCue], spoken: [CaptionCue])] = []
+        if options.includeOriginal && options.captions { tracks.append((sourceLanguage, cues, cues)) }
+        let targets = options.targets.filter { $0.code != sourceLanguage.code && (options.captions || dubbing[$0.code] != nil) }
         for (i, target) in targets.enumerated() {
-            report("Translating: \(target.displayName)…", 0.7 + 0.25 * Double(i) / Double(max(targets.count, 1)))
+            report("Translating: \(target.displayName)…", 0.7 + 0.1 * Double(i) / Double(max(targets.count, 1)))
             let translated = try await translator.translate(cues.map(\.text), from: options.sourceLocale.language, to: target)
-            let wrapped = zip(cues, translated).map { cue, text in
-                CaptionCue(start: cue.start, end: cue.end, text: LineWrapper.wrap(text, language: target.code))
-            }
-            tracks.append((target, wrapped))
+            let spoken = zip(cues, translated).map { CaptionCue(start: $0.start, end: $0.end, text: $1) }
+            let wrapped = spoken.map { CaptionCue(start: $0.start, end: $0.end, text: LineWrapper.wrap($0.text, language: target.code)) }
+            tracks.append((target, wrapped, spoken))
         }
 
         // 4. Output
-        report("Writing captions…", 0.97)
-        let langs = tracks.map(\.language.code).joined(separator: ", ")
-        project.addCaptions(tracks.map { ($0.language.code, $0.cues) })
-        project.markAsCopy(suffix: "— subtitles (\(langs))")
+        let captionCodes = options.captions ? tracks.map(\.language.code) : []
+        let dubTracks = tracks.filter { dubbing[$0.language.code] != nil }
+        var parts: [String] = []
+        if !captionCodes.isEmpty { parts.append("subtitles") }
+        if !dubTracks.isEmpty { parts.append("dub") }
+        let langs = (captionCodes + dubTracks.map(\.language.code)).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        project.markAsCopy(suffix: "— \(parts.joined(separator: " + ")) (\(langs.joined(separator: ", ")))")
+        project.assignLibraryFromMedia()
 
         let folder = options.outputRoot.appendingPathComponent(Self.safeName("\(project.name) \(Self.timestamp())"))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        // 5. Voice-over
+        var voiceTracks: [(name: String, url: URL, frames: Int64, sampleRate: Int64)] = []
+        var speech: [ClosedRange<Double>] = []
+        for (i, track) in dubTracks.enumerated() {
+            let base = 0.8 + 0.17 * Double(i) / Double(dubTracks.count)
+            report("Voicing: \(track.language.displayName)…", base)
+            let url = folder.appendingPathComponent("dub-\(track.language.code).wav")
+            let voice = dubbing[track.language.code].flatMap { $0.isEmpty ? nil : $0 }
+            let ranges = try await Dubber.render(cues: track.spoken, voiceID: voice, languageCode: track.language.code,
+                                                 totalDuration: project.duration, to: url) { p in
+                report("Voicing: \(track.language.displayName)…", base + 0.17 * p / Double(dubTracks.count))
+            }
+            speech += ranges
+            let frames = try AVAudioFile(forReading: url).length
+            voiceTracks.append((track.language.displayName, url, frames, Int64(Dubber.sampleRate)))
+        }
+
+        report("Writing project…", 0.97)
+        if options.captions {
+            project.addCaptions(tracks.map { ($0.language.code, $0.cues) })
+        }
+        if !voiceTracks.isEmpty {
+            project.addVoiceOver(voiceTracks, original: options.originalAudio, speech: speech)
+        }
+
         let fcpxmlURL = folder.appendingPathComponent(Self.safeName(project.name) + ".fcpxml")
         try project.xmlData().write(to: fcpxmlURL)
 
         var srtURLs: [URL] = []
-        for track in tracks {
-            let url = folder.appendingPathComponent("\(track.language.code).srt")
-            try SRTWriter.srt(track.cues).write(to: url, atomically: true, encoding: .utf8)
-            srtURLs.append(url)
+        if options.captions {
+            for track in tracks {
+                let url = folder.appendingPathComponent("\(track.language.code).srt")
+                try SRTWriter.srt(track.cues).write(to: url, atomically: true, encoding: .utf8)
+                srtURLs.append(url)
+            }
         }
         report("Done", 1)
-        return PipelineResult(fcpxmlURL: fcpxmlURL, srtURLs: srtURLs, outputFolder: folder,
-                              cueCount: cues.count, warnings: warnings)
+        return PipelineResult(fcpxmlURL: fcpxmlURL, srtURLs: srtURLs, dubURLs: voiceTracks.map(\.url),
+                              outputFolder: folder, cueCount: cues.count, warnings: warnings)
     }
 
     /// Where results go: ~/Movies/SubDub (the real home, also from inside the sandbox).

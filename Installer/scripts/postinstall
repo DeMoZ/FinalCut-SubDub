@@ -9,7 +9,12 @@ CONSOLE_USER=$(stat -f%Su /dev/console)
 if [ "$CONSOLE_USER" != "root" ]; then
   USER_ID=$(id -u "$CONSOLE_USER")
   launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" "$LSREGISTER" -f "$APP"
-  launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -a "$APPEX"
+  # Registration right after removing an old version sometimes doesn't stick: retry.
+  for _ in 1 2 3 4 5; do
+    launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -a "$APPEX"
+    launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -m -i com.subdub.app.extension | grep -q subdub && break
+    sleep 1
+  done
   launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -e use -i com.subdub.app.extension
 fi
 exit 0

@@ -1,13 +1,12 @@
 # SubDub for Final Cut Pro
 
-Automatic subtitles for **Final Cut Pro**: a panel inside FCP that transcribes the speech in a whole project and translates the captions into other languages. It all runs **offline, on your Mac**, using Apple's built-in speech recognition (SpeechAnalyzer) and Translation frameworks. There are no cloud services, API keys or subscriptions.
+Automatic subtitles and voice-over for **Final Cut Pro**: a panel inside FCP that transcribes the speech in a whole project, translates it into other languages, and adds the result as caption roles and/or dubbed audio. It all runs **offline, on your Mac**, using Apple's built-in speech recognition (SpeechAnalyzer) and Translation frameworks. There are no cloud services, API keys or subscriptions.
 
 - Transcribes the whole timeline: clips, connected clips, compound clips, multicam and synchronized clips.
 - Translates captions into about 20 languages: English, Thai, Chinese, Japanese, Korean, Spanish, German, French and more.
 - Each language is added as its own caption role (iTT), on frame boundaries.
-- Also writes `.srt` files for YouTube and other platforms.
-
-**Roadmap:** voice-over dubbing. The translated lines will be spoken by on-device Apple voices and placed on the timeline as one audio role per language.
+- **Voice-over (dub):** translated lines are spoken by on-device Apple voices and fitted to the original timing. Each language becomes its own audio role (`Dub English`, `Dub Thai`, …). The original audio can be kept, lowered while the dub speaks, or muted.
+- Also writes `.srt` files for YouTube and other platforms, plus a `.wav` file per dubbed language.
 
 ## Install
 
@@ -23,16 +22,19 @@ Automatic subtitles for **Final Cut Pro**: a panel inside FCP that transcribes t
 ## Usage
 
 1. Drag a project from the Final Cut Pro browser into the panel.
-2. Choose the spoken language and the subtitle languages.
-3. Click **Create Subtitles**.
+2. Choose what to create (**Subtitles**, **Voice-over** or both), the spoken language and the target languages.
+3. For voice-over, pick a voice per language (▶︎ previews it) and what happens to the original audio.
+4. Click **Create**.
 
-Final Cut Pro imports a copy of the project named "… — subtitles (ru, en, th)", with one caption role per language. Your original project is not touched. Files are also saved to `~/Movies/SubDub/`.
+Final Cut Pro imports a copy of the project named "… — subtitles + dub (ru, en, th)" into the same library and event, with one caption role and one dub audio role per language. Your original project is not touched. Files are also saved to `~/Movies/SubDub/`.
 
 The first time you use a language, macOS downloads its speech or translation model once. After that, everything works without an internet connection.
 
 ### Notes
 
 - **One caption language at a time in the viewer.** This is how closed captions work in Final Cut Pro. To switch languages, open Timeline Index ▸ Roles ▸ Captions. When you export (File ▸ Share ▸ Roles), you can embed several languages in one file or export each language as a separate sidecar file.
+- **Voices.** Apple's default voices are compact. For much better quality, download *Enhanced* or *Premium* voices in System Settings ▸ Accessibility ▸ Spoken Content ▸ System Voice ▸ Manage Voices. They show up in the panel automatically.
+- **Voice-over is not voice cloning.** The dub uses a system voice, not the speaker's own voice, and there is no lip sync.
 - **Font size can't be changed.** The iTT format lets the viewer's player decide the font and size.
 - **Workflow extensions can't edit an open timeline.** That's why the captions arrive in a copy of the project.
 - **Punctuation can be missing.** Some on-device models, such as Russian, return no punctuation. Sentences are then split at pauses in the speech.
@@ -45,7 +47,8 @@ Requires Xcode 26 and Final Cut Pro installed. `ProExtension.framework` is linke
 ```bash
 ./build.sh install   # build and install on this Mac (~/Applications)
 ./build.sh pkg       # build the installer: build/SubDub-<version>.pkg
-Tests/run.sh ru-RU   # end-to-end test on a sample project, without Final Cut Pro
+Tests/run.sh ru-RU en               # end-to-end test on a sample project, without Final Cut Pro
+SUBDUB_DUB=1 Tests/run.sh ru-RU en  # same, with English voice-over
 ```
 
 Signed and notarized build (requires an Apple Developer ID):
@@ -61,7 +64,7 @@ NOTARY_PROFILE=subdub ./build.sh pkg
 
 | Path | Contents |
 |---|---|
-| `Sources/Core` | FCPXML parsing, audio mixdown, transcription, segmentation, translation, caption writing |
+| `Sources/Core` | FCPXML parsing, audio mixdown, transcription, segmentation, translation, voice-over, caption writing |
 | `Sources/UI` | SwiftUI panel, shared by the extension and the app |
 | `Sources/Extension` | Final Cut Pro workflow extension entry point |
 | `Sources/App` | Companion app that contains the extension |

@@ -22,12 +22,16 @@ struct CLI {
             let result = try await pipeline.run(
                 projectData: data,
                 options: .init(sourceLocale: locale, includeOriginal: true, targets: targets,
-                               outputRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("out")),
+                               outputRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("out"),
+                               // SUBDUB_DUB=1 also voices every target language with its default voice.
+                               dubVoices: ProcessInfo.processInfo.environment["SUBDUB_DUB"] == "1"
+                                   ? Dictionary(uniqueKeysWithValues: targets.map { ($0.code, "") }) : [:]),
                 report: { step, f in
                     if step != lastStep { print("\n[\(Int(f * 100))%] \(step)", terminator: ""); lastStep = step }
                 })
             print("\n\nFCPXML: \(result.fcpxmlURL.path)")
             result.srtURLs.forEach { print("SRT:    \($0.path)") }
+            result.dubURLs.forEach { print("DUB:    \($0.path)") }
             result.warnings.forEach { print("WARN:   \($0)") }
         } catch {
             print("\nERROR: \(error.localizedDescription)")

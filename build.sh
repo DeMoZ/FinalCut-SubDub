@@ -12,8 +12,8 @@
 set -euo pipefail
 cd "${0:A:h}"
 
-VERSION="1.1"
-BUILD_NUMBER="3"
+VERSION="1.2"
+BUILD_NUMBER="4"
 BUNDLE_ID="com.subdub.app"
 EXT_ID="$BUNDLE_ID.extension"
 
@@ -113,7 +113,12 @@ install_local() {
   rm -rf "$dest"
   ditto "$APP" "$dest"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$dest"
-  pluginkit -a "$dest/Contents/PlugIns/SubDubExtension.appex"
+  # Registration right after removing the old version sometimes doesn't stick: retry.
+  for _ in 1 2 3 4 5; do
+    pluginkit -a "$dest/Contents/PlugIns/SubDubExtension.appex"
+    pluginkit -m -i "$EXT_ID" | grep -q "$EXT_ID" && break
+    sleep 1
+  done
   pluginkit -e use -i "$EXT_ID" 2>/dev/null || true
   echo "✓ Installed: $dest"
   pluginkit -m -v -p com.apple.FinalCut.WorkflowExtension

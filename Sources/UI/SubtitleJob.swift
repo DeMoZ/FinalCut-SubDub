@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import Translation
 
@@ -45,6 +46,29 @@ final class SubtitleJob: ObservableObject {
         didSet { UserDefaults.standard.set(includeOriginal, forKey: "includeOriginal") }
     }
 
+    // Output
+    enum OriginalAudioMode: String, CaseIterable, Identifiable {
+        case keep = "Keep", lower = "Lower", mute = "Mute"
+        var id: String { rawValue }
+    }
+
+    @Published var makeCaptions: Bool {
+        didSet { UserDefaults.standard.set(makeCaptions, forKey: "makeCaptions") }
+    }
+    @Published var makeDub: Bool {
+        didSet { UserDefaults.standard.set(makeDub, forKey: "makeDub") }
+    }
+    /// Chosen voice per language code (missing = default voice).
+    @Published var dubVoices: [String: String] {
+        didSet { UserDefaults.standard.set(dubVoices, forKey: "dubVoices") }
+    }
+    @Published var originalAudio: OriginalAudioMode {
+        didSet { UserDefaults.standard.set(originalAudio.rawValue, forKey: "originalAudio") }
+    }
+
+    private var voiceCache: [String: [DubVoice]] = [:]
+    private let previewSynth = AVSpeechSynthesizer()
+
     let translator = TranslationBroker()
     private var task: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
@@ -54,6 +78,66 @@ final class SubtitleJob: ObservableObject {
         sourceLocaleID = d.string(forKey: "sourceLocale") ?? "ru-RU"
         selectedTargets = Set(d.stringArray(forKey: "targets") ?? ["en", "th"])
         includeOriginal = d.object(forKey: "includeOriginal") as? Bool ?? true
+        makeCaptions = d.object(forKey: "makeCaptions") as? Bool ?? true
+        makeDub = d.object(forKey: "makeDub") as? Bool ?? false
+        dubVoices = d.dictionary(forKey: "dubVoices") as? [String: String] ?? [:]
+        originalAudio = OriginalAudioMode(rawValue: d.string(forKey: "originalAudio") ?? "") ?? .lower
+    }
+
+    func voices(for language: SubtitleLanguage) -> [DubVoice] {
+        if let cached = voiceCache[language.code] { return cached }
+        let list = Dubber.voices(for: language.code)
+        voiceCache[language.code] = list
+        return list
+    }
+
+    /// The voice used for a language: the saved choice if it is still installed, else the default.
+    func voiceID(for language: SubtitleLanguage) -> String {
+        let list = voices(for: language)
+        if let saved = dubVoices[language.code], list.contains(where: { $0.id == saved }) { return saved }
+        return Dubber.defaultVoice(for: language.code)?.id ?? ""
+    }
+
+    func setVoice(_ id: String, for language: SubtitleLanguage) {
+        dubVoices[language.code] = id
+    }
+
+    func preview(_ language: SubtitleLanguage) {
+        previewSynth.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: Self.sample(for: language))
+        utterance.voice = AVSpeechSynthesisVoice(identifier: voiceID(for: language))
+        previewSynth.speak(utterance)
+    }
+
+    /// Refreshes the voice list, e.g. after the user installs voices in System Settings.
+    func reloadVoices() {
+        voiceCache = [:]
+        objectWillChange.send()
+    }
+
+    static func openVoiceSettings() {
+        for s in ["x-apple.systempreferences:com.apple.Accessibility-Settings.extension?SpokenContent",
+                  "x-apple.systempreferences:com.apple.Accessibility-Settings.extension"] {
+            if let url = URL(string: s), NSWorkspace.shared.open(url) { return }
+        }
+    }
+
+    private static func sample(for language: SubtitleLanguage) -> String {
+        let samples = [
+            "ar": "هكذا سيبدو التعليق الصوتي.", "de": "So klingt die Synchronisation.",
+            "en": "This is how the voice-over will sound.", "es": "Así sonará el doblaje.",
+            "fr": "Voici comment sonnera le doublage.", "hi": "वॉइस-ओवर ऐसा सुनाई देगा।",
+            "id": "Beginilah suara sulih suaranya.", "it": "Ecco come suonerà il doppiaggio.",
+            "ja": "吹き替えはこのように聞こえます。", "ko": "더빙은 이렇게 들립니다.",
+            "nl": "Zo klinkt de voice-over.", "pl": "Tak będzie brzmiał lektor.",
+            "pt": "É assim que a dublagem vai soar.", "ru": "Так будет звучать озвучка.",
+            "th": "นี่คือตัวอย่างเสียงพากย์", "tr": "Seslendirme böyle duyulacak.",
+            "uk": "Так звучатиме озвучення.", "vi": "Đây là giọng lồng tiếng.",
+            "zh": "这是配音的效果。",
+        ]
+        let key = String(language.code.prefix(2))
+        if language.code == "zh-Hant" { return "這是配音的效果。" }
+        return samples[key] ?? language.nativeName
     }
 
     var isRunning: Bool {
@@ -64,7 +148,10 @@ final class SubtitleJob: ObservableObject {
     var sourceLanguage: SubtitleLanguage { SubtitleLanguage(Locale(identifier: sourceLocaleID).language) }
 
     var canStart: Bool {
-        project != nil && !isRunning && downloadingLanguage == nil && (includeOriginal || !effectiveTargets.isEmpty)
+        guard project != nil, !isRunning, downloadingLanguage == nil else { return false }
+        let captions = makeCaptions && (includeOriginal || !effectiveTargets.isEmpty)
+        let dub = makeDub && !effectiveTargets.isEmpty
+        return captions || dub
     }
 
     /// Selected targets in display order, without the source language itself.
@@ -154,11 +241,20 @@ final class SubtitleJob: ObservableObject {
 
     func start() {
         guard let project, canStart else { return }
+        let original: FCPXMLProject.OriginalAudio
+        switch originalAudio {
+        case .keep: original = .keep
+        case .lower: original = .duck(dB: -15)
+        case .mute: original = .mute
+        }
         let options = SubtitlePipeline.Options(
             sourceLocale: Locale(identifier: sourceLocaleID),
             includeOriginal: includeOriginal,
             targets: effectiveTargets,
-            outputRoot: SubtitlePipeline.defaultOutputRoot)
+            outputRoot: SubtitlePipeline.defaultOutputRoot,
+            captions: makeCaptions,
+            dubVoices: makeDub ? Dictionary(uniqueKeysWithValues: effectiveTargets.map { ($0.code, voiceID(for: $0)) }) : [:],
+            originalAudio: original)
         let pipeline = SubtitlePipeline(translator: translator)
         phase = .running(step: "Preparing…", fraction: 0)
 
