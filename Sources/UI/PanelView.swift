@@ -123,9 +123,18 @@ struct PanelView: View {
 
     private var voiceSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Voices").font(.subheadline.weight(.semibold))
+            HStack {
+                Text("Voices").font(.subheadline.weight(.semibold))
+                Spacer()
+                Picker("", selection: $job.voiceGender) {
+                    ForEach(VoiceGender.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
             ForEach(job.effectiveTargets) { lang in
-                let voices = job.voices(for: lang)
+                let voices = job.pickerVoices(for: lang)
                 HStack(spacing: 6) {
                     Text(lang.displayName).font(.callout).frame(width: 84, alignment: .leading).lineLimit(1)
                     if voices.isEmpty {
@@ -140,6 +149,12 @@ struct PanelView: View {
                             .buttonStyle(.borderless)
                             .help("Preview voice")
                     }
+                }
+                if job.lacksGender(lang) {
+                    Text("No \(job.voiceGender.rawValue.lowercased()) \(lang.displayName) voice installed — using another voice. Add one via Open below.")
+                        .font(.caption2).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 90)
                 }
             }
             HStack(spacing: 6) {

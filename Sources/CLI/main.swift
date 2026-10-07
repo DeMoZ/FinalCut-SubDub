@@ -13,6 +13,7 @@ struct CLI {
         let locale = Locale(identifier: args.count > 2 ? args[2] : "ru-RU")
         let codes = args.count > 3 ? args[3].split(separator: ",").map(String.init) : []
         let all = await Translator.supportedTargets()
+        let gender = ProcessInfo.processInfo.environment["SUBDUB_GENDER"].flatMap(VoiceGender.init(rawValue:))
         let targets = codes.compactMap { c in all.first { $0.code == c || $0.code.hasPrefix(c) } }
 
         do {
@@ -23,15 +24,17 @@ struct CLI {
                 projectData: data,
                 options: .init(sourceLocale: locale, includeOriginal: true, targets: targets,
                                outputRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("out"),
-                               // SUBDUB_DUB=1 also voices every target language with its default voice.
+                               // SUBDUB_DUB=1 also voices every target language; SUBDUB_GENDER=Male|Female picks the voice.
                                dubVoices: ProcessInfo.processInfo.environment["SUBDUB_DUB"] == "1"
-                                   ? Dictionary(uniqueKeysWithValues: targets.map { ($0.code, "") }) : [:]),
+                                   ? Dictionary(uniqueKeysWithValues: targets.map { t in
+                                       (t.code, Dubber.defaultVoice(for: t.code, gender: gender)?.id ?? "") }) : [:]),
                 report: { step, f in
                     if step != lastStep { print("\n[\(Int(f * 100))%] \(step)", terminator: ""); lastStep = step }
                 })
             print("\n\nFCPXML: \(result.fcpxmlURL.path)")
             result.srtURLs.forEach { print("SRT:    \($0.path)") }
             result.dubURLs.forEach { print("DUB:    \($0.path)") }
+            for t in targets { print("VOICE:  \(t.code) → \(Dubber.defaultVoice(for: t.code, gender: gender)?.name ?? "-")") }
             result.warnings.forEach { print("WARN:   \($0)") }
         } catch {
             print("\nERROR: \(error.localizedDescription)")

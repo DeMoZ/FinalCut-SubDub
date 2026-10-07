@@ -23,7 +23,7 @@ Automatic subtitles and voice-over for **Final Cut Pro**: a panel inside FCP tha
 
 1. Drag a project from the Final Cut Pro browser into the panel.
 2. Choose what to create (**Subtitles**, **Voice-over** or both), the spoken language and the target languages.
-3. For voice-over, pick a voice per language (▶︎ previews it) and what happens to the original audio.
+3. For voice-over, choose **Female** or **Male**, adjust the voice per language if you like (🔊 previews it), and choose what happens to the original audio.
 4. Click **Create**.
 
 Final Cut Pro imports a copy of the project named "… — subtitles + dub (ru, en, th)" into the same library and event, with one caption role and one dub audio role per language. Your original project is not touched. Files are also saved to `~/Movies/SubDub/`.
@@ -33,7 +33,7 @@ The first time you use a language, macOS downloads its speech or translation mod
 ### Notes
 
 - **One caption language at a time in the viewer.** This is how closed captions work in Final Cut Pro. To switch languages, open Timeline Index ▸ Roles ▸ Captions. When you export (File ▸ Share ▸ Roles), you can embed several languages in one file or export each language as a separate sidecar file.
-- **Voices.** Apple's default voices are compact. For much better quality, download *Enhanced* or *Premium* voices in System Settings ▸ Accessibility ▸ Spoken Content ▸ System Voice ▸ Manage Voices. They show up in the panel automatically.
+- **Voices.** Apple's default voices are compact. For much better quality, download *Enhanced* or *Premium* voices in System Settings ▸ Accessibility ▸ Spoken Content ▸ System Voice ▸ Manage Voices. They show up in the panel automatically. Out of the box many languages only have a female voice; if the chosen gender isn't installed, the panel says so and uses another voice.
 - **Voice-over is not voice cloning.** The dub uses a system voice, not the speaker's own voice, and there is no lip sync.
 - **Font size can't be changed.** The iTT format lets the viewer's player decide the font and size.
 - **Workflow extensions can't edit an open timeline.** That's why the captions arrive in a copy of the project.

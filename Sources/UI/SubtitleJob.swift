@@ -62,6 +62,9 @@ final class SubtitleJob: ObservableObject {
     @Published var dubVoices: [String: String] {
         didSet { UserDefaults.standard.set(dubVoices, forKey: "dubVoices") }
     }
+    @Published var voiceGender: VoiceGender {
+        didSet { UserDefaults.standard.set(voiceGender.rawValue, forKey: "voiceGender") }
+    }
     @Published var originalAudio: OriginalAudioMode {
         didSet { UserDefaults.standard.set(originalAudio.rawValue, forKey: "originalAudio") }
     }
@@ -82,6 +85,7 @@ final class SubtitleJob: ObservableObject {
         makeDub = d.object(forKey: "makeDub") as? Bool ?? false
         dubVoices = d.dictionary(forKey: "dubVoices") as? [String: String] ?? [:]
         originalAudio = OriginalAudioMode(rawValue: d.string(forKey: "originalAudio") ?? "") ?? .lower
+        voiceGender = VoiceGender(rawValue: d.string(forKey: "voiceGender") ?? "") ?? .female
     }
 
     func voices(for language: SubtitleLanguage) -> [DubVoice] {
@@ -91,15 +95,30 @@ final class SubtitleJob: ObservableObject {
         return list
     }
 
-    /// The voice used for a language: the saved choice if it is still installed, else the default.
+    /// Voices offered in the picker: the chosen gender, or all voices when none of that gender is installed.
+    func pickerVoices(for language: SubtitleLanguage) -> [DubVoice] {
+        let all = voices(for: language)
+        let matching = all.filter { $0.gender == voiceGender }
+        return matching.isEmpty ? all : matching
+    }
+
+    /// True when no voice of the chosen gender is installed for the language.
+    func lacksGender(_ language: SubtitleLanguage) -> Bool {
+        let all = voices(for: language)
+        return !all.isEmpty && !all.contains { $0.gender == voiceGender }
+    }
+
+    private func choiceKey(_ language: SubtitleLanguage) -> String { "\(language.code)|\(voiceGender.rawValue)" }
+
+    /// The voice used for a language: the saved choice for the current gender if still installed, else the best match.
     func voiceID(for language: SubtitleLanguage) -> String {
-        let list = voices(for: language)
-        if let saved = dubVoices[language.code], list.contains(where: { $0.id == saved }) { return saved }
-        return Dubber.defaultVoice(for: language.code)?.id ?? ""
+        let list = pickerVoices(for: language)
+        if let saved = dubVoices[choiceKey(language)], list.contains(where: { $0.id == saved }) { return saved }
+        return Dubber.defaultVoice(for: language.code, gender: voiceGender)?.id ?? ""
     }
 
     func setVoice(_ id: String, for language: SubtitleLanguage) {
-        dubVoices[language.code] = id
+        dubVoices[choiceKey(language)] = id
     }
 
     func preview(_ language: SubtitleLanguage) {

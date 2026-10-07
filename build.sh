@@ -12,8 +12,8 @@
 set -euo pipefail
 cd "${0:A:h}"
 
-VERSION="1.2"
-BUILD_NUMBER="4"
+VERSION="1.3"
+BUILD_NUMBER="5"
 BUNDLE_ID="com.subdub.app"
 EXT_ID="$BUNDLE_ID.extension"
 

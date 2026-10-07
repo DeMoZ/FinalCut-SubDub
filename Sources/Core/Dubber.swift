@@ -1,11 +1,17 @@
 import AVFoundation
 
+enum VoiceGender: String, CaseIterable, Identifiable {
+    case female = "Female", male = "Male"
+    var id: String { rawValue }
+}
+
 /// A system voice that can speak a subtitle language.
 struct DubVoice: Identifiable, Hashable {
     let id: String          // AVSpeechSynthesisVoice.identifier
     let name: String
     let language: String    // BCP-47, e.g. "en-US"
     let quality: AVSpeechSynthesisVoiceQuality
+    let gender: VoiceGender?
 
     var label: String {
         let region = Locale(identifier: language).region.flatMap { Locale(identifier: "en").localizedString(forRegionCode: $0.identifier) }
@@ -17,6 +23,32 @@ struct DubVoice: Identifiable, Hashable {
         }
         return region.map { "\(name) (\($0))\(q)" } ?? "\(name)\(q)"
     }
+
+    /// Modern Apple voices first, then Eloquence (Eddy, Flo…), then legacy MacinTalk (Fred, Ralph…).
+    var tier: Int {
+        if id.contains(".eloquence.") { return 1 }
+        if id.hasPrefix("com.apple.speech.synthesis.voice.") { return 2 }
+        return 0
+    }
+
+    init(_ voice: AVSpeechSynthesisVoice) {
+        id = voice.identifier
+        name = voice.name
+        language = voice.language
+        quality = voice.quality
+        switch voice.gender {
+        case .female: gender = .female
+        case .male: gender = .male
+        default: gender = Self.knownGenders[voice.name]
+        }
+    }
+
+    /// Voices that don't report a gender.
+    private static let knownGenders: [String: VoiceGender] = [
+        "Eddy": .male, "Reed": .male, "Rocko": .male, "Grandpa": .male,
+        "Flo": .female, "Sandy": .female, "Shelley": .female, "Grandma": .female,
+        "Albert": .male, "Fred": .male, "Junior": .male, "Ralph": .male, "Kathy": .female,
+    ]
 }
 
 enum DubberError: LocalizedError {
@@ -50,15 +82,29 @@ enum Dubber {
         // Novelty voices (Bells, Bubbles, …) are not useful for dubbing.
         let usable = all.filter { !$0.voiceTraits.contains(.isNoveltyVoice) && !$0.voiceTraits.contains(.isPersonalVoice) }
         return usable
-            .map { DubVoice(id: $0.identifier, name: $0.name, language: $0.language, quality: $0.quality) }
-            .sorted { ($0.quality.rawValue, $1.name) > ($1.quality.rawValue, $0.name) }
+            .map(DubVoice.init)
+            .sorted { a, b in
+                if a.quality != b.quality { return a.quality.rawValue > b.quality.rawValue }
+                if a.tier != b.tier { return a.tier < b.tier }
+                return a.name < b.name
+            }
     }
 
-    static func defaultVoice(for code: String) -> DubVoice? {
-        let list = voices(for: code)
-        // Prefer the voice for the user's region of that language, then the best quality.
-        let regionCode = Locale.current.region?.identifier
-        return list.first { Locale(identifier: $0.language).region?.identifier == regionCode } ?? list.first
+    /// Best voice for a language, preferring the requested gender when one is installed.
+    static func defaultVoice(for code: String, gender: VoiceGender? = nil) -> DubVoice? {
+        let all = voices(for: code)
+        let list = gender.map { g in all.filter { $0.gender == g } }.flatMap { $0.isEmpty ? nil : $0 } ?? all
+        // Among the best-quality tier, prefer the user's region of that language.
+        guard let best = list.first else { return nil }
+        // Then the language's main region (en → US, es → ES, …).
+        let regions = [Locale.current.region?.identifier,
+                       Locale.Language(identifier: Locale.Language(identifier: code).maximalIdentifier).region?.identifier]
+        for region in regions.compactMap({ $0 }) {
+            if let v = list.first(where: { $0.quality == best.quality && $0.tier == best.tier && Locale(identifier: $0.language).region?.identifier == region }) {
+                return v
+            }
+        }
+        return best
     }
 
     /// Speaks every cue and writes a 48 kHz mono WAV aligned to the timeline.
