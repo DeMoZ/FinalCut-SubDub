@@ -1,0 +1,8 @@
+#!/bin/sh
+# Unregister a previous version so Final Cut Pro picks up the new one.
+APPEX="/Applications/FCP AutoSubs.app/Contents/PlugIns/FCPAutoSubsExtension.appex"
+CONSOLE_USER=$(stat -f%Su /dev/console)
+if [ -d "$APPEX" ] && [ "$CONSOLE_USER" != "root" ]; then
+  launchctl asuser "$(id -u "$CONSOLE_USER")" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -r "$APPEX" 2>/dev/null || true
+fi
+exit 0

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Register the app and its Final Cut Pro workflow extension for the logged-in user.
+APP="/Applications/FCP AutoSubs.app"
+APPEX="$APP/Contents/PlugIns/FCPAutoSubsExtension.appex"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+CONSOLE_USER=$(stat -f%Su /dev/console)
+
+"$LSREGISTER" -f "$APP"
+if [ "$CONSOLE_USER" != "root" ]; then
+  USER_ID=$(id -u "$CONSOLE_USER")
+  launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" "$LSREGISTER" -f "$APP"
+  launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -a "$APPEX"
+  launchctl asuser "$USER_ID" sudo -u "$CONSOLE_USER" /usr/bin/pluginkit -e use -i com.fcpautosubs.app.extension
+fi
+exit 0
