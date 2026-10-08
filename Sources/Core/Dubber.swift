@@ -56,7 +56,7 @@ enum DubberError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noVoice(let l): return "No system voice is installed for \(l). Add one in System Settings ▸ Accessibility ▸ Spoken Content ▸ System Voice ▸ Manage Voices."
+        case .noVoice(let l): return "No system voice is installed for \(l). Add one in System Settings ▸ Accessibility ▸ Read & Speak (ⓘ next to System voice)."
         }
     }
 }
@@ -133,18 +133,30 @@ enum Dubber {
             try Task.checkCancellation()
             let text = cue.text.replacingOccurrences(of: "\n", with: " ")
             let slotEnd = i + 1 < cues.count ? cues[i + 1].start : max(cue.end, totalDuration)
-            let slot = max(0.3, slotEnd - cue.start)
+            // Measure the slot from where this line can actually start, so lines catch up after an overrun.
+            let actualStart = max(cue.start, Double(written) / sampleRate)
+            let slot = max(0.3, slotEnd - actualStart)
+            let limit = i + 1 < cues.count ? maxSpeedUp : 1.6
 
-            var rate = AVSpeechUtteranceDefaultSpeechRate
-            var speech = try await synth.speak(text, voice: voice, rate: rate, format: format)
-            // Too long for its slot: speed up (measured, two refinement passes).
-            for _ in 0..<2 where speech.duration > slot * 1.02 {
-                let currentSpeed = 1 + Double(rate - AVSpeechUtteranceDefaultSpeechRate) / 0.36
-                let speedUp = min(maxSpeedUp, currentSpeed * speech.duration / slot)
-                let newRate = Self.rate(forSpeedUp: speedUp)
-                guard newRate > rate + 0.005 else { break }
-                rate = newRate
-                speech = try await synth.speak(text, voice: voice, rate: rate, format: format)
+            var speech = try await synth.speak(text, voice: voice, rate: AVSpeechUtteranceDefaultSpeechRate, format: format)
+            if speech.duration > slot * 1.02 {
+                // Too long for its slot. How `rate` maps to speed differs a lot between voices,
+                // so binary-search the slowest rate whose measured length fits (or reaches the cap).
+                let target = max(slot, speech.duration / limit)
+                var lo = AVSpeechUtteranceDefaultSpeechRate, hi = Float(0.85)
+                var fastest = speech
+                for _ in 0..<5 {
+                    let mid = (lo + hi) / 2
+                    let attempt = try await synth.speak(text, voice: voice, rate: mid, format: format)
+                    if attempt.duration > target * 1.02 {
+                        lo = mid
+                        if attempt.duration < fastest.duration { fastest = attempt }
+                    } else {
+                        hi = mid
+                        fastest = attempt
+                    }
+                }
+                speech = fastest
             }
 
             let startFrame = max(AVAudioFramePosition(cue.start * sampleRate), written)
@@ -157,13 +169,6 @@ enum Dubber {
         let total = AVAudioFramePosition(totalDuration * sampleRate)
         if total > written { try writeSilence(total - written, to: file, format: format) }
         return ranges
-    }
-
-    /// AVSpeechUtterance.rate is not linear; this mapping was measured to be close
-    /// to the real speed-up between the default rate (0.5) and ~0.62.
-    private static func rate(forSpeedUp s: Double) -> Float {
-        let r = AVSpeechUtteranceDefaultSpeechRate + Float((s - 1) * 0.36)
-        return min(max(r, AVSpeechUtteranceDefaultSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
     }
 
     private static func writeSilence(_ frames: AVAudioFramePosition, to file: AVAudioFile, format: AVAudioFormat) throws {

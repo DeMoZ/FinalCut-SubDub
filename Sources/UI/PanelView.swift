@@ -140,6 +140,7 @@ struct PanelView: View {
                     if voices.isEmpty {
                         Text("No voice installed").font(.caption).foregroundStyle(.orange)
                         Spacer()
+                        Button("Get voices…") { job.getVoices(for: lang) }.controlSize(.small)
                     } else {
                         Picker("", selection: Binding(get: { job.voiceID(for: lang) }, set: { job.setVoice($0, for: lang) })) {
                             ForEach(voices) { Text($0.label).tag($0.id) }
@@ -151,9 +152,17 @@ struct PanelView: View {
                     }
                 }
                 if job.lacksGender(lang) {
-                    Text("No \(job.voiceGender.rawValue.lowercased()) \(lang.displayName) voice installed — using another voice. Add one via Open below.")
-                        .font(.caption2).foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("No \(job.voiceGender.rawValue.lowercased()) \(lang.displayName) voice installed — using another voice.")
+                            .font(.caption2).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button("Get voices…") { job.getVoices(for: lang) }.controlSize(.mini)
+                    }
+                    .padding(.leading, 90)
+                }
+                if job.voiceHelpLanguage == lang.code {
+                    VoiceHelp(language: lang, gender: job.voiceGender) { job.voiceHelpLanguage = nil }
                         .padding(.leading, 90)
                 }
             }
@@ -167,11 +176,9 @@ struct PanelView: View {
                 .help("Lower = original quieter (−15 dB) while the voice-over speaks")
             }
             HStack(spacing: 4) {
-                Text("Better voices: Enhanced and Premium in Spoken Content settings.")
+                Text("Better voices: Enhanced and Premium in Read & Speak settings.")
                     .font(.caption2).foregroundStyle(.secondary)
                 Button("Open") { SubtitleJob.openVoiceSettings() }.buttonStyle(.link).font(.caption2)
-                Button { job.reloadVoices() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).font(.caption2).help("Reload voices")
             }
         }
         .disabled(job.isRunning)
@@ -387,5 +394,33 @@ private struct OutputToggle: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Step-by-step hint shown after "Get voices…" opens System Settings.
+private struct VoiceHelp: View {
+    let language: SubtitleLanguage
+    let gender: VoiceGender
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("In System Settings").font(.caption.weight(.semibold))
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).font(.caption2)
+            }
+            Text("1. In Read & Speak (Spoken Content), click ⓘ next to System voice — or set System speech language to \(language.displayName) and open the System voice menu.")
+            Text("2. Download a \(gender.rawValue.lowercased()) \(language.displayName) voice (⬇︎). Enhanced or Premium sound best.")
+            Text("3. Set System speech language back if you changed it, then come back here: the voice appears automatically.")
+            Text("Siri voices can't be used by other apps.")
+                .foregroundStyle(.secondary)
+            Text("Some languages (e.g. Thai) may have no \(gender.rawValue.lowercased()) voice from Apple at all.")
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption2)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.accentColor.opacity(0.1)))
     }
 }

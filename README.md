@@ -33,7 +33,7 @@ The first time you use a language, macOS downloads its speech or translation mod
 ### Notes
 
 - **One caption language at a time in the viewer.** This is how closed captions work in Final Cut Pro. To switch languages, open Timeline Index ▸ Roles ▸ Captions. When you export (File ▸ Share ▸ Roles), you can embed several languages in one file or export each language as a separate sidecar file.
-- **Voices.** Apple's default voices are compact. For much better quality, download *Enhanced* or *Premium* voices in System Settings ▸ Accessibility ▸ Spoken Content ▸ System Voice ▸ Manage Voices. They show up in the panel automatically. Out of the box many languages only have a female voice; if the chosen gender isn't installed, the panel says so and uses another voice.
+- **Voices.** Apple's default voices are compact. For much better quality, download *Enhanced* or *Premium* voices in System Settings ▸ Accessibility ▸ Read & Speak (Spoken Content on older macOS): click ⓘ next to System voice, or temporarily set System speech language to the language you need and pick a voice to download. Siri voices can't be used directly; see *Siri voices (developer tool)* below. They show up in the panel automatically. Out of the box many languages only have a female voice; if the chosen gender isn't installed, the panel says so and uses another voice.
 - **Voice-over is not voice cloning.** The dub uses a system voice, not the speaker's own voice, and there is no lip sync.
 - **Font size can't be changed.** The iTT format lets the viewer's player decide the font and size.
 - **Workflow extensions can't edit an open timeline.** That's why the captions arrive in a copy of the project.
@@ -60,6 +60,19 @@ DEV_ID_INSTALLER="Developer ID Installer: Your Name (TEAMID)" \
 NOTARY_PROFILE=subdub ./build.sh pkg
 ```
 
+### Siri voices (developer tool)
+
+macOS only lets Apple-signed programs use **Siri voices**, so SubDub can't offer them in the panel. If Xcode is installed, you can re-voice a dub track with a Siri voice afterwards. This works because the Swift interpreter is Apple-signed:
+
+```bash
+Tools/siri-revoice.sh --list                                   # Siri voices you have downloaded
+Tools/siri-revoice.sh "~/Movies/SubDub/<output folder>" th Male  # or Female, or a voice id from --list
+```
+
+It reads `th.srt` from the SubDub output folder and rewrites `dub-th.wav` with the same timing. The original is kept as `dub-th.apple.wav`. If Final Cut Pro still plays the old voice, select the clip and choose **File ▸ Relink Files**, or restart Final Cut Pro.
+
+Download Siri voices in System Settings ▸ Accessibility ▸ Read & Speak: set System speech language to the language you need and pick a Siri voice to download.
+
 ### Project layout
 
 | Path | Contents |
@@ -70,6 +83,7 @@ NOTARY_PROFILE=subdub ./build.sh pkg
 | `Sources/App` | Companion app that contains the extension |
 | `Sources/CLI` | Command-line test tool |
 | `Installer` | Installer scripts and resources |
+| `Tools` | `siri-revoice`: re-voice a dub track with a Siri voice (needs Xcode) |
 | `Tests` | Sample project with synthetic Russian speech and an end-to-end test script |
 
 ## Uninstall

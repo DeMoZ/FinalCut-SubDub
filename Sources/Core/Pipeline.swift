@@ -116,13 +116,12 @@ final class SubtitlePipeline {
         let fcpxmlURL = folder.appendingPathComponent(Self.safeName(project.name) + ".fcpxml")
         try project.xmlData().write(to: fcpxmlURL)
 
+        // SRT for every caption language, and for dub languages too (Tools/siri-revoice reads them).
         var srtURLs: [URL] = []
-        if options.captions {
-            for track in tracks {
-                let url = folder.appendingPathComponent("\(track.language.code).srt")
-                try SRTWriter.srt(track.cues).write(to: url, atomically: true, encoding: .utf8)
-                srtURLs.append(url)
-            }
+        for track in tracks where options.captions || dubbing[track.language.code] != nil {
+            let url = folder.appendingPathComponent("\(track.language.code).srt")
+            try SRTWriter.srt(track.cues).write(to: url, atomically: true, encoding: .utf8)
+            if options.captions { srtURLs.append(url) }
         }
         report("Done", 1)
         return PipelineResult(fcpxmlURL: fcpxmlURL, srtURLs: srtURLs, dubURLs: voiceTracks.map(\.url),

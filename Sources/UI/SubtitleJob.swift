@@ -71,6 +71,9 @@ final class SubtitleJob: ObservableObject {
 
     private var voiceCache: [String: [DubVoice]] = [:]
     private let previewSynth = AVSpeechSynthesizer()
+    private var voicesObserver: NSObjectProtocol?
+    /// Language whose "Get voices…" was opened, to show what to look for in Settings.
+    @Published var voiceHelpLanguage: String?
 
     let translator = TranslationBroker()
     private var task: Task<Void, Never>?
@@ -86,6 +89,22 @@ final class SubtitleJob: ObservableObject {
         dubVoices = d.dictionary(forKey: "dubVoices") as? [String: String] ?? [:]
         originalAudio = OriginalAudioMode(rawValue: d.string(forKey: "originalAudio") ?? "") ?? .lower
         voiceGender = VoiceGender(rawValue: d.string(forKey: "voiceGender") ?? "") ?? .female
+
+        // Voices downloaded in System Settings appear in the panel without a manual refresh.
+        voicesObserver = NotificationCenter.default.addObserver(
+            forName: AVSpeechSynthesizer.availableVoicesDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadVoices() }
+        }
+    }
+
+    deinit {
+        if let voicesObserver { NotificationCenter.default.removeObserver(voicesObserver) }
+    }
+
+    func getVoices(for language: SubtitleLanguage) {
+        voiceHelpLanguage = language.code
+        Self.openVoiceSettings()
     }
 
     func voices(for language: SubtitleLanguage) -> [DubVoice] {
@@ -131,6 +150,11 @@ final class SubtitleJob: ObservableObject {
     /// Refreshes the voice list, e.g. after the user installs voices in System Settings.
     func reloadVoices() {
         voiceCache = [:]
+        // The voice the user went to download has arrived: hide the hint.
+        if let code = voiceHelpLanguage, let lang = targetLanguages.first(where: { $0.code == code }),
+           voices(for: lang).contains(where: { $0.gender == voiceGender }) {
+            voiceHelpLanguage = nil
+        }
         objectWillChange.send()
     }
 
