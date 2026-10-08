@@ -25,6 +25,10 @@ struct PanelView: View {
         }
         .frame(minWidth: 320, idealWidth: 380, minHeight: 420)
         .task { await job.loadLanguages() }
+        .onReceive(ProjectInbox.shared.$url.compactMap { $0 }) { url in
+            job.receive(url)
+            ProjectInbox.shared.url = nil
+        }
         .modifier(TranslationHost(broker: job.translator))
     }
 
@@ -38,6 +42,12 @@ struct PanelView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("SubDub").font(.headline)
                 Text("Offline subtitles, translation & voice-over").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !job.isApp && job.project != nil {
+                Button { job.openInApp() } label: { Label("Open in App", systemImage: "arrow.up.forward.app") }
+                    .controlSize(.small)
+                    .help("Continue in the SubDub app, which can use Siri voices (needs Xcode)")
             }
         }
     }
@@ -125,6 +135,10 @@ struct PanelView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Voices").font(.subheadline.weight(.semibold))
+                if job.siriLoading {
+                    ProgressView().controlSize(.mini)
+                    Text("Loading Siri voices…").font(.caption2).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Picker("", selection: $job.voiceGender) {
                     ForEach(VoiceGender.allCases) { Text($0.rawValue).tag($0) }
@@ -143,28 +157,45 @@ struct PanelView: View {
                         Button("Get voices…") { job.getVoices(for: lang) }.controlSize(.small)
                     } else {
                         Picker("", selection: Binding(get: { job.voiceID(for: lang) }, set: { job.setVoice($0, for: lang) })) {
-                            ForEach(voices) { Text($0.label).tag($0.id) }
+                            ForEach(voices) { v in
+                                // When the chosen gender isn't available, say which gender this voice is.
+                                Text(job.lacksGender(lang) ? "\(v.label) · \(v.gender?.rawValue.lowercased() ?? "voice")" : v.label).tag(v.id)
+                            }
                         }
                         .labelsHidden()
-                        Button { job.preview(lang) } label: { Image(systemName: "speaker.wave.2.fill") }
-                            .buttonStyle(.borderless)
-                            .help("Preview voice")
+                        if job.previewing == lang.code {
+                            ProgressView().controlSize(.small).help("Preparing Siri preview…")
+                        } else {
+                            Button { job.preview(lang) } label: { Image(systemName: "speaker.wave.2.fill") }
+                                .buttonStyle(.borderless)
+                                .help("Preview voice")
+                        }
                     }
                 }
                 if job.lacksGender(lang) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("No \(job.voiceGender.rawValue.lowercased()) \(lang.displayName) voice installed — using another voice.")
+                    let other = voices.first.flatMap(\.gender)?.rawValue.lowercased() ?? "another"
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("No \(job.voiceGender.rawValue.lowercased()) \(lang.displayName) voice is available here — the \(other) voice will speak.")
                             .font(.caption2).foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Button("Get voices…") { job.getVoices(for: lang) }.controlSize(.mini)
+                        if !job.isApp {
+                            Button("Use Siri voices: Open in SubDub App") { job.openInApp() }
+                                .buttonStyle(.link).font(.caption2)
+                        } else if job.voiceHelpLanguage == lang.code {
+                            Text("Check System Settings ▸ Accessibility ▸ Read & Speak: set System speech language to \(lang.displayName) and look in the System voice menu for a \(job.voiceGender.rawValue.lowercased()) name. Many languages have none. Siri voices don't work in apps (see Tools/siri-revoice in the README).")
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Button("Look for more voices…") { job.getVoices(for: lang) }
+                                .buttonStyle(.link).font(.caption2)
+                        }
                     }
                     .padding(.leading, 90)
                 }
-                if job.voiceHelpLanguage == lang.code {
-                    VoiceHelp(language: lang, gender: job.voiceGender) { job.voiceHelpLanguage = nil }
-                        .padding(.leading, 90)
-                }
+            }
+            if job.isApp && !job.siriPossible {
+                Text("Siri voices appear here when Xcode is installed.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             HStack(spacing: 6) {
                 Text("Original audio").font(.callout).frame(width: 84, alignment: .leading)
@@ -397,30 +428,3 @@ private struct OutputToggle: View {
     }
 }
 
-/// Step-by-step hint shown after "Get voices…" opens System Settings.
-private struct VoiceHelp: View {
-    let language: SubtitleLanguage
-    let gender: VoiceGender
-    let dismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text("In System Settings").font(.caption.weight(.semibold))
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).font(.caption2)
-            }
-            Text("1. In Read & Speak (Spoken Content), click ⓘ next to System voice — or set System speech language to \(language.displayName) and open the System voice menu.")
-            Text("2. Download a \(gender.rawValue.lowercased()) \(language.displayName) voice (⬇︎). Enhanced or Premium sound best.")
-            Text("3. Set System speech language back if you changed it, then come back here: the voice appears automatically.")
-            Text("Siri voices can't be used by other apps.")
-                .foregroundStyle(.secondary)
-            Text("Some languages (e.g. Thai) may have no \(gender.rawValue.lowercased()) voice from Apple at all.")
-                .foregroundStyle(.secondary)
-        }
-        .font(.caption2)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.accentColor.opacity(0.1)))
-    }
-}

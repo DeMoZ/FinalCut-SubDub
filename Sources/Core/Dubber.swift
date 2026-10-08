@@ -17,18 +17,29 @@ struct DubVoice: Identifiable, Hashable {
         let region = Locale(identifier: language).region.flatMap { Locale(identifier: "en").localizedString(forRegionCode: $0.identifier) }
         let q: String
         switch quality {
-        case .premium: q = " · Premium"
+        case .premium: q = isSiri ? " · Siri" : " · Premium"
         case .enhanced: q = " · Enhanced"
         default: q = ""
         }
         return region.map { "\(name) (\($0))\(q)" } ?? "\(name)\(q)"
     }
 
-    /// Modern Apple voices first, then Eloquence (Eddy, Flo…), then legacy MacinTalk (Fred, Ralph…).
+    var isSiri: Bool { id.hasPrefix(SiriVoices.idPrefix) }
+
+    /// Siri voices first, then modern Apple voices, Eloquence (Eddy, Flo…), legacy MacinTalk (Fred, Ralph…).
     var tier: Int {
+        if isSiri { return -1 }
         if id.contains(".eloquence.") { return 1 }
         if id.hasPrefix("com.apple.speech.synthesis.voice.") { return 2 }
         return 0
+    }
+
+    init(siriID: String, name: String, language: String, gender: VoiceGender?) {
+        id = SiriVoices.idPrefix + siriID
+        self.name = name
+        self.language = language
+        quality = .premium
+        self.gender = gender
     }
 
     init(_ voice: AVSpeechSynthesisVoice) {
@@ -111,6 +122,9 @@ enum Dubber {
     /// - Returns: the speech ranges actually used (seconds), for ducking the original audio.
     static func render(cues: [CaptionCue], voiceID: String?, languageCode: String, totalDuration: Double,
                        to url: URL, progress: @escaping (Double) -> Void) async throws -> [ClosedRange<Double>] {
+        if let voiceID, voiceID.hasPrefix(SiriVoices.idPrefix) {
+            return try await SiriVoices.render(cues: cues, voiceID: voiceID, totalDuration: totalDuration, to: url, progress: progress)
+        }
         guard let voice = voiceID.flatMap(AVSpeechSynthesisVoice.init(identifier:)) ?? defaultVoice(for: languageCode).flatMap({ AVSpeechSynthesisVoice(identifier: $0.id) }) else {
             throw DubberError.noVoice(languageCode)
         }

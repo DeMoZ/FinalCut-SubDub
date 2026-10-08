@@ -69,6 +69,15 @@ final class SubtitleJob: ObservableObject {
         didSet { UserDefaults.standard.set(originalAudio.rawValue, forKey: "originalAudio") }
     }
 
+    /// Siri voices (only in the SubDub app with Xcode installed; empty in the Final Cut Pro panel).
+    @Published var siriVoices: [DubVoice] = []
+    @Published var siriLoading = false
+    /// Language code whose Siri preview is being generated.
+    @Published var previewing: String?
+    /// True in the standalone SubDub app, false in the sandboxed Final Cut Pro panel.
+    let isApp = !SiriVoices.isSandboxed
+    var siriPossible: Bool { SiriVoices.isAvailable }
+
     private var voiceCache: [String: [DubVoice]] = [:]
     private let previewSynth = AVSpeechSynthesizer()
     private var voicesObserver: NSObjectProtocol?
@@ -109,9 +118,19 @@ final class SubtitleJob: ObservableObject {
 
     func voices(for language: SubtitleLanguage) -> [DubVoice] {
         if let cached = voiceCache[language.code] { return cached }
-        let list = Dubber.voices(for: language.code)
+        let wanted = Locale.Language(identifier: language.code).languageCode
+        let siri = siriVoices.filter { Locale.Language(identifier: $0.language).languageCode == wanted }
+        let list = siri + Dubber.voices(for: language.code)
         voiceCache[language.code] = list
         return list
+    }
+
+    func loadSiriVoices() async {
+        guard SiriVoices.isAvailable, !siriLoading else { return }
+        siriLoading = true
+        siriVoices = await SiriVoices.list()
+        siriLoading = false
+        reloadVoices()
     }
 
     /// Voices offered in the picker: the chosen gender, or all voices when none of that gender is installed.
@@ -133,7 +152,9 @@ final class SubtitleJob: ObservableObject {
     func voiceID(for language: SubtitleLanguage) -> String {
         let list = pickerVoices(for: language)
         if let saved = dubVoices[choiceKey(language)], list.contains(where: { $0.id == saved }) { return saved }
-        return Dubber.defaultVoice(for: language.code, gender: voiceGender)?.id ?? ""
+        // A Siri voice of the right gender beats the built-in voices.
+        if let siri = list.first(where: { $0.isSiri && $0.gender == voiceGender }) { return siri.id }
+        return Dubber.defaultVoice(for: language.code, gender: voiceGender)?.id ?? list.first?.id ?? ""
     }
 
     func setVoice(_ id: String, for language: SubtitleLanguage) {
@@ -142,6 +163,15 @@ final class SubtitleJob: ObservableObject {
 
     func preview(_ language: SubtitleLanguage) {
         previewSynth.stopSpeaking(at: .immediate)
+        let id = voiceID(for: language)
+        if id.hasPrefix(SiriVoices.idPrefix) {
+            previewing = language.code
+            Task {
+                do { try await SiriVoices.preview(Self.sample(for: language), voiceID: id) } catch { downloadError = error.localizedDescription }
+                previewing = nil
+            }
+            return
+        }
         let utterance = AVSpeechUtterance(string: Self.sample(for: language))
         utterance.voice = AVSpeechSynthesisVoice(identifier: voiceID(for: language))
         previewSynth.speak(utterance)
@@ -215,6 +245,67 @@ final class SubtitleJob: ObservableObject {
         }
         targetLanguages = await Translator.supportedTargets()
         await refreshDownloads()
+        await loadSiriVoices()
+    }
+
+    // MARK: Hand-off from the Final Cut Pro panel to the SubDub app
+
+    struct HandoffSettings: Codable {
+        var sourceLocaleID: String
+        var targets: [String]
+        var includeOriginal: Bool
+        var makeCaptions: Bool
+        var makeDub: Bool
+        var voiceGender: String
+        var originalAudio: String
+    }
+
+    static var handoffFolder: URL { SubtitlePipeline.defaultOutputRoot.appendingPathComponent(".handoff", isDirectory: true) }
+
+    /// Panel → app: saves the project and the current choices, then opens them in the SubDub app,
+    /// which can use Siri voices.
+    func openInApp() {
+        guard let project else { return }
+        do {
+            let folder = Self.handoffFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let settings = HandoffSettings(sourceLocaleID: sourceLocaleID, targets: Array(selectedTargets),
+                                           includeOriginal: includeOriginal, makeCaptions: makeCaptions, makeDub: makeDub,
+                                           voiceGender: voiceGender.rawValue, originalAudio: originalAudio.rawValue)
+            try JSONEncoder().encode(settings).write(to: folder.appendingPathComponent("settings.json"))
+            let projectURL = folder.appendingPathComponent("project.fcpxml")
+            try project.data.write(to: projectURL)
+
+            // The panel lives at SubDub.app/Contents/PlugIns/SubDubExtension.appex.
+            let appURL = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.open([projectURL], withApplicationAt: appURL, configuration: config) { _, error in
+                if let error { Task { @MainActor in self.loadError = error.localizedDescription } }
+            }
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    /// App side: loads a project handed over by the panel (or any .fcpxml opened with the app).
+    func receive(_ url: URL) {
+        let file = url.pathExtension.lowercased() == "fcpxmld" ? url.appendingPathComponent("Info.fcpxml") : url
+        guard let data = try? Data(contentsOf: file) else { return }
+        load(data)
+        let settingsURL = url.deletingLastPathComponent().appendingPathComponent("settings.json")
+        if let json = try? Data(contentsOf: settingsURL), let s = try? JSONDecoder().decode(HandoffSettings.self, from: json) {
+            sourceLocaleID = s.sourceLocaleID
+            selectedTargets = Set(s.targets)
+            includeOriginal = s.includeOriginal
+            makeCaptions = s.makeCaptions
+            makeDub = s.makeDub
+            voiceGender = VoiceGender(rawValue: s.voiceGender) ?? voiceGender
+            originalAudio = OriginalAudioMode(rawValue: s.originalAudio) ?? originalAudio
+        }
+        if url.path.hasPrefix(Self.handoffFolder.path) {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
     }
 
     func refreshDownloads() async {

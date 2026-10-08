@@ -14,6 +14,13 @@ struct CLI {
         let codes = args.count > 3 ? args[3].split(separator: ",").map(String.init) : []
         let all = await Translator.supportedTargets()
         let gender = ProcessInfo.processInfo.environment["SUBDUB_GENDER"].flatMap(VoiceGender.init(rawValue:))
+        // With SUBDUB_SIRI_SCRIPT set (and Xcode installed), Siri voices of the chosen gender win.
+        let siri = ProcessInfo.processInfo.environment["SUBDUB_DUB"] == "1" ? await SiriVoices.list() : []
+        func voice(for code: String) -> DubVoice? {
+            let lang = Locale.Language(identifier: code).languageCode
+            return siri.first { Locale.Language(identifier: $0.language).languageCode == lang && (gender == nil || $0.gender == gender) }
+                ?? Dubber.defaultVoice(for: code, gender: gender)
+        }
         let targets = codes.compactMap { c in all.first { $0.code == c || $0.code.hasPrefix(c) } }
 
         do {
@@ -27,14 +34,14 @@ struct CLI {
                                // SUBDUB_DUB=1 also voices every target language; SUBDUB_GENDER=Male|Female picks the voice.
                                dubVoices: ProcessInfo.processInfo.environment["SUBDUB_DUB"] == "1"
                                    ? Dictionary(uniqueKeysWithValues: targets.map { t in
-                                       (t.code, Dubber.defaultVoice(for: t.code, gender: gender)?.id ?? "") }) : [:]),
+                                       (t.code, voice(for: t.code)?.id ?? "") }) : [:]),
                 report: { step, f in
                     if step != lastStep { print("\n[\(Int(f * 100))%] \(step)", terminator: ""); lastStep = step }
                 })
             print("\n\nFCPXML: \(result.fcpxmlURL.path)")
             result.srtURLs.forEach { print("SRT:    \($0.path)") }
             result.dubURLs.forEach { print("DUB:    \($0.path)") }
-            for t in targets { print("VOICE:  \(t.code) → \(Dubber.defaultVoice(for: t.code, gender: gender)?.name ?? "-")") }
+            for t in targets { print("VOICE:  \(t.code) → \(voice(for: t.code)?.label ?? "-")") }
             result.warnings.forEach { print("WARN:   \($0)") }
         } catch {
             print("\nERROR: \(error.localizedDescription)")

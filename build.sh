@@ -12,8 +12,8 @@
 set -euo pipefail
 cd "${0:A:h}"
 
-VERSION="1.5"
-BUILD_NUMBER="7"
+VERSION="1.6"
+BUILD_NUMBER="8"
 BUNDLE_ID="com.subdub.app"
 EXT_ID="$BUNDLE_ID.extension"
 
@@ -93,6 +93,8 @@ build_app() {
   swiftc_universal "$APP/Contents/MacOS/$APP_NAME" -module-name SubDub \
     "${CORE[@]}" "${UI[@]}" Sources/App/*.swift
   plist_with_version Resources/App-Info.plist "$APP/Contents/Info.plist"
+  # Siri voice helper, run by the app through Xcode's Swift interpreter.
+  cp Tools/SiriRevoice/siri-revoice.swift "$APP/Contents/Resources/"
 
   echo "→ Signing (${DEV_ID_APP:-ad-hoc})"
   sign "$APPEX" Resources/Extension.entitlements
